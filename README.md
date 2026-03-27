@@ -12,7 +12,7 @@ Initially, this repository sought to test an alternative interpretation based on
 > If the wall simply reflects where synchronization costs are paid, providing a generic "maintenance subsidy" (indirect, non-task-specific gradient flow) to unrewarded positions should erode it. 
 
 **The Findings:**
-This repository implements that test, and **the results strongly validate Misra's original Shannon/Kolmogorov divide.** The control experiments demonstrate that generic gradient flow is completely insufficient to erode the wall. The transformer only succeeds at unrewarded positions when explicit, *task-relevant* supervision (distillation from a teacher) is provided at those specific coordinates. 
+This repository implements that test, and **the results strongly validate Misra's original Shannon/Kolmogorov divide.** The control experiments demonstrate that generic gradient flow is completely insufficient to erode the wall (although entropy regularization still suggests the barrier may be thinner than the Shannon/Kolmogorov framing implies). The transformer only succeeds at unrewarded positions when explicit, *task-relevant* supervision (distillation from a teacher) is provided at those specific coordinates. 
 
 **Conclusion:**
 In the language of the *Maintaining Divergence* framework, this experiment proves that the "synchronization tax" for algorithmic execution cannot be paid with generic compute. Because the model has not learned a universal Kolmogorov program, it requires the teacher to supply the missing informational beliefs at every novel position. The wall is indeed an intrinsic limit of how standard autoregressive transformers generalize.
