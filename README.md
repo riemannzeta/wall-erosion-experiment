@@ -4,26 +4,30 @@ Testing the **synchronization tax prediction**: can the Shannon/Kolmogorov "wall
 
 ## Background
 
-[Misra (2025)](https://medium.com/@vishalmisra/the-wall-between-shannon-and-kolmogorov-65a9d7e8fb7c) gave a clean demonstration of the phenomenon: when a transformer is trained on modular linear recurrences (`x_{t+1} = ax_t + b mod 17`) with cross-entropy loss computed only at positions 1-K, the model achieves near-Bayesian performance at trained positions but fails catastrophically at untrained positions. Misra interprets this "wall" as an intrinsic boundary: LLMs compile localized prediction circuits based on pattern matching (Shannon) rather than learning generalized, position-independent algorithms (Kolmogorov).
+[Misra](https://medium.com/@vishalmisra/the-wall-between-shannon-and-kolmogorov-65a9d7e8fb7c) provides a clean demonstration of a fundamental generalization failure: when a transformer is trained on modular linear recurrences (`x_{t+1} = ax_t + b mod 17`) with cross-entropy loss computed only at positions 1-K, the model achieves near-Bayesian precision at trained positions but fails catastrophically at untrained positions. Misra interprets this "wall" as an intrinsic epistemological boundary: LLMs compile localized prediction circuits based on pattern matching (Shannon) rather than learning generalized, position-independent algorithms (Kolmogorov).
 
-This repository tests an alternative interpretation based on the [Maintaining Divergence](https://www.symmetrybroken.com/maintaining-divergence/#the-three-part-decomposition) framework, which predicted that the wall reflects where training allocates resources rather than an architectural ceiling.
+This repository tests an alternative interpretation based on the [Maintaining Divergence](https://www.symmetrybroken.com/maintaining-divergence/#the-three-part-decomposition) framework. This thermodynamic view of inference predicts that the wall reflects where training allocates resources—a failure to pay the "synchronization tax" required to maintain coherence out-of-distribution—rather than a strict architectural inability to learn the algorithm.
 
 **The Original Prediction:**
 
-> If the wall simply reflects where synchronization costs are paid, providing a generic "maintenance subsidy" (indirect, non-task-specific gradient flow) to unrewarded positions should erode it.
+> If the wall simply reflects where synchronization costs are paid, providing a generic "maintenance subsidy" (indirect, non-task-specific gradient flow) to unrewarded positions should provide the continuous computational energy needed to maintain coherence and erode the wall.
 
 **The Findings:**
 
-The original prediction was too strong. Generic gradient flow — providing compute without task-relevant information — does not erode the wall. Matched controls confirm this cleanly: entropy regularization toward a uniform target, distillation from a random teacher, and hidden-state smoothness constraints all preserve the wall. Misra is right that generic compute is not enough.
+The experimental data disciplines both frameworks productively. The original prediction was too strong, but the strict Shannon/Kolmogorov framing is too rigid.
+
+The original prediction fails because generic gradient flow — providing compute without task-relevant information — does not erode the wall. Matched controls confirm this cleanly: entropy regularization toward a uniform target, distillation from a random teacher, and hidden-state smoothness constraints all preserve the wall. Misra is right that generic compute is not enough; you cannot pay a synchronization tax with unconstrained kinetic energy.
 
 But the wall is not as thick as the Shannon/Kolmogorov framing implies. Two mechanisms eliminate it completely:
 
-- **Distillation** from a trained teacher erodes the wall by supplying the full Bayesian posterior at unrewarded positions. This supports Misra's interpretation: the teacher hands the student the answer.
-- **Entropy regularization** erodes the wall by supplying only a scalar signal — *how uncertain to be* — without specifying *what to predict*. The model reconstructs the full posterior from its own internal representations given only this calibration hint. This is harder to reconcile with a hard Shannon/Kolmogorov divide, since the circuit capable of Bayesian inference already exists in the trained weights and needs only minimal supervisory signal to activate at new positions.
+- **Distillation** from a trained teacher erodes the wall by supplying the full Bayesian posterior at unrewarded positions. This supports Misra's interpretation: the teacher explicitly hands the student the missing mathematical beliefs.
+- **Entropy regularization** erodes the wall by supplying only a single, label-agnostic scalar signal — *how uncertain to be* — without specifying *what to predict*. Given only this minimal calibration hint, the model flawlessly reconstructs the highly complex Bayesian posterior from its own internal representations. This mathematically challenges a hard Shannon/Kolmogorov divide. If the model were purely a Shannon curve-fitter that never learned the algorithm, forcing it to "be confident" out-of-distribution would simply amplify hallucinated garbage. The fact that it snaps to the exact correct answer proves the generalized Kolmogorov circuit *is* globally compiled in the trained weights.
 
 **Conclusion:**
 
-The experiment disciplines the [Maintaining Divergence](https://www.symmetrybroken.com/maintaining-divergence/) framework: the "synchronization tax" cannot be paid with generic compute. Information content, not gradient flow, determines where circuits generalize. But the entropy regularization result suggests the wall may be a calibration barrier rather than a compilation barrier — the model possesses the circuit but cannot deploy it without a minimal task-relevant signal. Whether this distinction matters for practical LLM limitations remains an open question.
+The experiment disciplines the [Maintaining Divergence](https://www.symmetrybroken.com/maintaining-divergence/) framework: the "synchronization tax" cannot be paid with generic compute. Maintaining an algorithmic channel requires structural alignment, not just gradient flow.
+
+However, the entropy regularization result fundamentally shifts our understanding of the wall. It is not a **compilation barrier** (a lack of algorithmic capability), but a **calibration barrier** caused by environmental entanglement. The model learns the universal rule, but because it lacks an endogenous mechanism to shield that rule from out-of-distribution positional noise, its epistemic confidence collapses at novel positions. The scalar entropy target acts as an exogenous, metaphorical "roof"—providing the minimal maintenance structure needed to protect the computational channel from the environment, allowing the model to confidently deploy the generalized circuit it already possesses. Whether this distinction between an unlearned algorithm and a fragile, environmentally entangled one matters for practical LLM limitations remains an open question.
 
 ## Results
 
