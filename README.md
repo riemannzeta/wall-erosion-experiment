@@ -29,6 +29,8 @@ The experiment disciplines the [Maintaining Divergence](https://www.symmetrybrok
 
 However, the entropy regularization result fundamentally shifts our understanding of the wall. It is not a **compilation barrier** (a lack of algorithmic capability), but a **calibration barrier** caused by environmental entanglement. The model learns the universal rule, but because it lacks an endogenous mechanism to shield that rule from out-of-distribution positional noise, its epistemic confidence collapses at novel positions. The scalar entropy target acts as an exogenous, metaphorical "roof"—providing the minimal maintenance structure needed to protect the computational channel from the environment, allowing the model to confidently deploy the generalized circuit it already possesses. Whether this distinction between an unlearned algorithm and a fragile, environmentally entangled one matters for practical LLM limitations remains an open question.
 
+**Phase 2 Addendum (full convergence, 3 seeds):** At 150K steps the integer wall ratio reaches ~76x (approaching Misra's reported 83x), confirming Phase 1's 7.1x was a diagnostic snapshot. The wall also generalizes to sequence-length extrapolation: models trained on length-8 sequences show a clean wall at position 9 when evaluated on longer sequences. Notably, models that cannot extrapolate revert to maximum entropy (uninformative but honest prediction) rather than hallucinating — the failure mode is calibrated uncertainty, not confabulation.
+
 ## Results
 
 The wall **is not intrinsic**. Two mechanisms completely eliminate it:
@@ -42,6 +44,19 @@ The wall **is not intrinsic**. Two mechanisms completely eliminate it:
 | B: Distill control (random) | 0.185 | 2.084 | 11.3x |
 
 Matched controls that provide gradient flow but no task-relevant information preserve the wall, confirming the effect is driven by *information content*, not gradient flow alone.
+
+Full results: [`results/RESULTS.md`](results/RESULTS.md)
+
+### Phase 2: Extrapolation (full convergence, 3 seeds)
+
+| Condition | Trained MAE | Untrained MAE | Wall Ratio |
+|-----------|------------|---------------|------------|
+| Horizon — Integer | 0.020 | 1.512 | **~76x** |
+| Horizon — Opaque | 0.824 | 1.796 | **~2.2x** |
+
+The wall at convergence approaches Misra's reported 83x. Opaque tokens reduce the ratio but by degrading trained performance, not improving untrained.
+
+Extrapolation mode reveals a **second wall**: models trained on 8-position sequences generalize perfectly within that range but fail cleanly at position 9+, reverting to maximum entropy rather than hallucinating.
 
 Full results: [`results/RESULTS.md`](results/RESULTS.md)
 
@@ -63,9 +78,15 @@ Each mechanism has a matched control providing gradient flow with no task-releva
 ## Reproducing
 
 ```bash
-# Setup
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# Setup (uv preferred)
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Or with pip:
+# python -m venv .venv && source .venv/bin/activate
+# pip install -r requirements.txt
+
+# --- Phase 1: Wall erosion mechanisms (10K-step diagnostic) ---
 
 # Reproduce baselines (use --device mps on Apple Silicon, --device cuda on NVIDIA)
 python wall_erosion_experiment.py --mechanism none --loss_horizon 15 \
@@ -88,6 +109,18 @@ python wall_erosion_experiment.py --mechanism entropy --control --subsidy_lambda
 
 # Full matrix (all mechanisms x controls x lambda sweep x 3 seeds)
 python wall_erosion_experiment.py --run_matrix --seeds 42 43 44 --device mps
+
+# --- Phase 2: Extrapolation experiments (full convergence, ~2h per run on MPS) ---
+
+# Horizon mode — integer and opaque
+python recurrence_extrapolation.py --mode horizon --seeds 42 43 44 --device mps
+python recurrence_extrapolation.py --mode horizon --opaque --seeds 42 43 44 --device mps
+
+# Extrapolation mode — integer and opaque
+python recurrence_extrapolation.py --mode extrapolate --train_seq_len 8 \
+    --eval_seq_lens 8 16 32 50 --sinusoidal_pe --seeds 42 43 44 --device mps
+python recurrence_extrapolation.py --mode extrapolate --opaque --train_seq_len 8 \
+    --eval_seq_lens 8 16 32 50 --sinusoidal_pe --seeds 42 43 44 --device mps
 ```
 
 ## Upstream
