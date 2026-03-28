@@ -67,6 +67,50 @@ def _ensure_torch():
         F = _F
 
 
+def generate_batch_fast(batch_size, p, pi, seq_len, opaque=False):
+    """Generate a batch of training sequences without Bayesian ground truth.
+
+    Returns a 2D numpy array of token ids, shape (batch_size, total_len),
+    and the header_len (0 for integer, p+2 for opaque).
+    """
+    is_program = np.random.random(batch_size) < pi
+
+    # Generate all recurrence parameters at once
+    a_all = np.random.randint(0, p, size=batch_size)
+    b_all = np.random.randint(0, p, size=batch_size)
+    x0_all = np.random.randint(0, p, size=batch_size)
+
+    # Generate recurrence sequences vectorized
+    seqs = np.zeros((batch_size, seq_len), dtype=np.int64)
+    seqs[:, 0] = x0_all
+    for t in range(1, seq_len):
+        seqs[:, t] = (a_all * seqs[:, t - 1] + b_all) % p
+
+    # Override random sequences
+    random_mask = ~is_program
+    n_random = random_mask.sum()
+    if n_random > 0:
+        seqs[random_mask] = np.random.randint(0, p, size=(n_random, seq_len))
+
+    if not opaque:
+        return seqs, 0
+
+    # Opaque: relabel each sequence independently, prepend header
+    ORD = 2 * p
+    SEP = 2 * p + 1
+    header_len = p + 2  # [ORD, relabel[0..p-1], SEP]
+
+    result = np.zeros((batch_size, header_len + seq_len), dtype=np.int64)
+    for i in range(batch_size):
+        relabel = np.random.permutation(p)
+        result[i, 0] = ORD
+        result[i, 1:p + 1] = relabel
+        result[i, p + 1] = SEP
+        result[i, header_len:] = relabel[seqs[i]] + p
+
+    return result, header_len
+
+
 # ============================================================================
 # Model with sinusoidal PE option
 # ============================================================================
@@ -265,7 +309,12 @@ def train(args):
     _ensure_torch()
     RecurrenceTransformerExtrap = _build_model_class()
 
-    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
+    if args.device.startswith('mps') and torch.backends.mps.is_available():
+        device = torch.device('mps')
+    elif args.device.startswith('cuda') and torch.cuda.is_available():
+        device = torch.device(args.device)
+    else:
+        device = torch.device('cpu')
     p = args.p
 
     if args.opaque:
@@ -315,62 +364,52 @@ def train(args):
 
     for step in range(1, args.n_steps + 1):
         model.train()
-        cfg = RecurrenceConfig(
-            p=p, pi=args.pi, seq_len=args.train_seq_len, opaque=args.opaque
+
+        batch_np, header_len = generate_batch_fast(
+            args.batch_size, p, args.pi, args.train_seq_len, opaque=args.opaque
         )
-
-        batch_tokens = []
-        max_len = 0
-        for _ in range(args.batch_size):
-            tokens, _, metadata = generate_recurrence_sequence(cfg)
-            batch_tokens.append(tokens)
-            max_len = max(max_len, len(tokens))
-
-        padded = []
-        for tokens in batch_tokens:
-            padded.append(tokens + [PAD] * (max_len - len(tokens)))
-        x = torch.tensor(padded, dtype=torch.long).to(device)
+        x = torch.from_numpy(batch_np).to(device)
 
         logits = model(x)
 
-        # Loss computation with optional horizon restriction
-        loss = torch.tensor(0.0, device=device)
-        count = 0
-        for b_idx in range(args.batch_size):
-            header_len = len(batch_tokens[b_idx]) - args.train_seq_len
-            seq_start = header_len
+        # Build targets: predict token at t+1 from logits at t
+        # We need logits[:, t, :] to predict x[:, t+1] for valid positions
+        targets = x[:, 1:]  # (B, T-1)
+        pred_logits = logits[:, :-1, :n_tokens]  # (B, T-1, n_tokens)
 
-            # Determine loss range
-            if args.mode == 'horizon' and args.loss_horizon is not None:
-                # Only compute loss at positions 1..loss_horizon
-                # (predicting tokens at positions 1..loss_horizon)
-                seq_end_loss = min(
-                    seq_start + args.loss_horizon,
-                    len(batch_tokens[b_idx]) - 1
-                )
-            else:
-                seq_end_loss = len(batch_tokens[b_idx]) - 1
+        # Build position mask for valid loss positions
+        seq_start = header_len
+        if args.mode == 'horizon' and args.loss_horizon is not None:
+            seq_end_loss = min(seq_start + args.loss_horizon, x.shape[1] - 1)
+        else:
+            seq_end_loss = x.shape[1] - 1
 
-            for t in range(seq_start, seq_end_loss):
-                target = x[b_idx, t + 1]
-                if target >= vocab_size:
-                    continue
-                if args.opaque:
-                    target_shifted = target - p
-                    if 0 <= target_shifted < n_tokens:
-                        loss = loss + F.cross_entropy(
-                            logits[b_idx, t, :n_tokens], target_shifted
-                        )
-                        count += 1
-                else:
-                    if target < n_tokens:
-                        loss = loss + F.cross_entropy(
-                            logits[b_idx, t, :n_tokens], target
-                        )
-                        count += 1
+        # Mask: only positions in [seq_start, seq_end_loss)
+        pos_mask = torch.zeros(x.shape[1] - 1, dtype=torch.bool, device=device)
+        pos_mask[seq_start:seq_end_loss] = True
 
+        # Shift targets for opaque mode and mask out invalid tokens
+        if args.opaque:
+            shifted_targets = targets - p
+            valid_mask = pos_mask.unsqueeze(0) & (shifted_targets >= 0) & (shifted_targets < n_tokens)
+            shifted_targets = shifted_targets.clamp(0, n_tokens - 1)
+        else:
+            shifted_targets = targets
+            valid_mask = pos_mask.unsqueeze(0) & (targets >= 0) & (targets < n_tokens)
+            shifted_targets = shifted_targets.clamp(0, n_tokens - 1)
+
+        # Compute per-element loss and mask
+        per_element_loss = F.cross_entropy(
+            pred_logits.reshape(-1, n_tokens),
+            shifted_targets.reshape(-1),
+            reduction='none'
+        ).reshape(pred_logits.shape[0], pred_logits.shape[1])
+
+        count = valid_mask.sum()
         if count > 0:
-            loss = loss / count
+            loss = (per_element_loss * valid_mask).sum() / count
+        else:
+            loss = torch.tensor(0.0, device=device)
 
         optimizer.zero_grad()
         loss.backward()
